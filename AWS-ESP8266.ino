@@ -17,6 +17,24 @@ BearSSL::PrivateKey device_key(DEVICE_KEY);
 
 MQTTClient client = MQTTClient(256);
 
+const uint8_t BUTTON = 12;
+bool clicked = false;
+bool doubleClicked = false;
+unsigned long lastClick = millis();
+const uint SINGLE_CLICK_DELAY = 200;
+const uint DOUBLE_CLICK_DELAY = 800;
+
+void ICACHE_RAM_ATTR handleClick() {
+  // Limit trigger rate
+  if ((millis() - lastClick) < SINGLE_CLICK_DELAY) return;
+  if (!clicked) {
+    clicked = true;
+  } else if (!doubleClicked && (millis() - lastClick) < DOUBLE_CLICK_DELAY) {
+    doubleClicked = true;
+  }
+  lastClick = millis();
+}
+
 void connectAWS() {
 
   WiFi.mode(WIFI_STA);
@@ -61,8 +79,12 @@ void connectAWS() {
 
 void publishMessage() {
   StaticJsonDocument<200> doc;
-  doc["time"] = millis();
-  doc["sensor_a0"] = analogRead(0);
+  doc["time"] = time(nullptr);
+  if (doubleClicked) {
+    doc["event"] = "DOUBLE_CLICK";
+  } else if (clicked) {
+    doc["event"] = "CLICKED";
+  }
   char jsonBuffer[512];
   serializeJson(doc, jsonBuffer);  // print to client
 
@@ -77,13 +99,23 @@ void messageHandler(String &topic, String &payload) {
   const char *message = doc["message"];
 }
 
+
+
 void setup() {
   Serial.begin(9600);
+  pinMode(12, INPUT);
+  attachInterrupt(digitalPinToInterrupt(12), handleClick, RISING);
   connectAWS();
 }
 
 void loop() {
-  // publishMessage();
   client.loop();
+  if ((millis() - lastClick) > DOUBLE_CLICK_DELAY) {
+    if (doubleClicked || clicked) {
+      publishMessage();
+      clicked = false;
+      doubleClicked = false;
+    }
+  }
   delay(1000);
 }
